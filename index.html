@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Location Tracker</title>
+  </head>
+  <body>
+    <div id="app">
+      <h1>Location Tracker</h1>
+      <div class="input-group">
+        <label for="mdnInput">MDN (차량 번호):</label>
+        <input type="text" id="mdnInput" placeholder="예: 01012345678" required>
+      </div>
+      <div id="status">Status: Waiting to start...</div>
+      <div id="current-location">Current Location: -</div>
+      <div id="collected-count">Collected: 0/60</div>
+      <button id="startTracking" disabled>Start Tracking</button>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
