@@ -62,8 +62,8 @@ interface GpsLogRequest {
 
 class LocationTracker {
   private locations: LocationData[] = [];
-  private intervalId: number | undefined;
-  private sendIntervalId: number | undefined;
+  private intervalId: number | null = null;
+  private sendIntervalId: number | null = null;
   private statusElement: HTMLElement;
   private locationElement: HTMLElement;
   private countElement: HTMLElement;
@@ -127,7 +127,7 @@ class LocationTracker {
         body: JSON.stringify(tokenRequest),
       });
 
-      const data: TokenResponse = await response.json();
+      const data = await response.json();
       console.log('Token Response:', { status: response.status, data });
       
       if (!response.ok) {
@@ -303,39 +303,62 @@ class LocationTracker {
   }
 
   private async toggleTracking() {
-    if (this.intervalId === undefined) {
+    if (this.intervalId === null) {
+      // Start tracking
+      if (!navigator.geolocation) {
+        this.statusElement.textContent = 'Status: Geolocation is not supported';
+        return;
+      }
+
+      if (!this.validateMdn()) {
+        this.statusElement.textContent = 'Status: Invalid MDN';
+        return;
+      }
+
       try {
+        this.statusElement.textContent = 'Status: Getting token...';
+        console.log('Starting token request...');
         this.token = await this.getToken();
+        console.log('Token received successfully');
+        
+        this.statusElement.textContent = 'Status: Token received, sending car ON log...';
+        console.log('Starting car ON request...');
         const position = await this.getCurrentPosition();
         await this.sendCarOnLog(position);
+        console.log('Car ON log sent successfully');
         
-        this.intervalId = window.setInterval(() => this.collectLocation(), 1000);
-        this.sendIntervalId = window.setInterval(() => this.sendLocations(), 5000);
+        this.statusElement.textContent = 'Status: Car ON log sent, starting tracking...';
+        
+        // Collect location every second
+        this.intervalId = setInterval(() => this.collectLocation(), 1000);
+        
+        // Send collected locations every minute
+        this.sendIntervalId = setInterval(async () => {
+          if (this.locations.length > 0) {
+            await this.sendLocations();
+          }
+        }, 60000);
         
         this.startButton.textContent = 'Stop Tracking';
-        this.mdnInput.disabled = true;
-      } catch (error) {
-        console.error('Error starting tracking:', error);
-        alert('Failed to start tracking. Please try again.');
+      } catch (error: any) {
+        console.error('Error in toggleTracking:', error);
+        this.statusElement.textContent = `Status: Failed to start tracking - ${error.message}`;
       }
     } else {
-      if (this.intervalId !== undefined) {
-        window.clearInterval(this.intervalId);
-      }
-      if (this.sendIntervalId !== undefined) {
-        window.clearInterval(this.sendIntervalId);
-      }
-      
-      this.intervalId = undefined;
-      this.sendIntervalId = undefined;
-      this.startButton.textContent = 'Start Tracking';
-      this.mdnInput.disabled = false;
-      
+      // Stop tracking
       try {
         const position = await this.getCurrentPosition();
         await this.sendCarOffLog(position);
+        
+        clearInterval(this.intervalId);
+        clearInterval(this.sendIntervalId);
+        this.intervalId = null;
+        this.sendIntervalId = null;
+        this.statusElement.textContent = 'Status: Tracking stopped, car OFF log sent';
+        this.startButton.textContent = 'Start Tracking';
       } catch (error) {
         console.error('Error stopping tracking:', error);
+        this.statusElement.textContent = 'Status: Error sending car OFF log';
       }
     }
   }
