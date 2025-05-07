@@ -114,7 +114,7 @@ class LocationTracker {
 
   private validateMdn() {
     const mdn = this.mdnInput.value.trim();
-    const isValid = mdn.length > 0; // 빈 문자열이 아닌 경우에만 true
+    const isValid = mdn.length > 0; // 11자리 숫자인지 확인
     this.startButton.disabled = !isValid;
     return isValid;
   }
@@ -247,6 +247,11 @@ class LocationTracker {
   }
 
   private async sendLocations() {
+    if (this.locations.length < END_TIME) {
+      console.log(`Not enough locations collected: ${this.locations.length}/${END_TIME}`);
+      return;
+    }
+
     this.statusElement.textContent = 'Status: Sending locations...';
     
     try {
@@ -255,6 +260,9 @@ class LocationTracker {
       }
 
       const now = new Date();
+      const locationsToSend = [...this.locations];  // 현재 수집된 위치 데이터 복사
+      this.locations = [];  // 데이터 전송 전에 배열 비우기
+
       const gpsLogRequest: GpsLogRequest = {
         mdn: this.getMdn(),
         tid: "A001",
@@ -262,25 +270,17 @@ class LocationTracker {
         pv: "5",
         did: "1",
         oTime: this.formatDate(now, false),  // yyyyMMddHHmm 형식
-        cCnt: "60",  // 항상 60개
-        cList: Array.from({ length: 60 }, (_, i) => {
-          const sec = String(i).padStart(2, '0');  // 00부터 59까지
-          const location = this.locations.find(loc => {
-            const locDate = new Date(loc.timestamp);
-            return String(locDate.getSeconds()).padStart(2, '0') === sec;
-          }) || this.locations[this.locations.length - 1];  // 해당 초의 데이터가 없으면 마지막 위치 사용
-
-          return {
-            sec,
-            gcd: "A",
-            lat: String(Math.round(location.latitude * 1000000)),
-            lon: String(Math.round(location.longitude * 1000000)),
-            ang: "0",
-            spd: "0",
-            sum: "0",
-            bat: "120"
-          };
-        })
+        cCnt: String(END_TIME),  // 항상 60개
+        cList: locationsToSend.map((location, index) => ({
+          sec: String(index).padStart(2, '0'),  // 00부터 시작하는 인덱스
+          gcd: "A",
+          lat: String(Math.round(location.latitude * 1000000)),
+          lon: String(Math.round(location.longitude * 1000000)),
+          ang: "0",
+          spd: "0",
+          sum: "0",
+          bat: "120"
+        }))
       };
 
       console.log('Sending GPS log request:', gpsLogRequest);
@@ -300,7 +300,6 @@ class LocationTracker {
       const data = await response.json();
       console.log('GPS Log Response:', { status: response.status, data });
 
-      this.locations = [];
       this.statusElement.textContent = 'Status: Locations sent successfully';
     } catch (error) {
       console.error('Error sending locations:', error);
@@ -412,12 +411,12 @@ class LocationTracker {
         // Collect location every second
         this.intervalId = setInterval(() => this.collectLocation(), 1000);
         
-        // Send collected locations every minute
+        // Send collected locations every minute (60초마다)
         this.sendIntervalId = setInterval(async () => {
-          if (this.locations.length > 0) {
+          if (this.locations.length >= END_TIME) {  // 60개 이상 모였을 때만 전송
             await this.sendLocations();
           }
-        }, END_TIME * 100);
+        }, 1000);  // 1초마다 체크
         
         this.startButton.textContent = 'Stop Tracking';
       } catch (error: any) {
