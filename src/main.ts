@@ -56,6 +56,8 @@ interface GpsLogRequest {
   cList: GpsLogInfo[];
 }
 
+const END_TIME = 60;
+
 class LocationTracker {
   private locations: LocationData[] = [];
   private intervalId: number | null = null;
@@ -81,7 +83,7 @@ class LocationTracker {
 
   private validateMdn() {
     const mdn = this.mdnInput.value.trim();
-    const isValid = /^\d{11}$/.test(mdn); // 11자리 숫자인지 확인
+    const isValid = /^\d{3}$/.test(mdn); // 11자리 숫자인지 확인
     this.startButton.disabled = !isValid;
     return isValid;
   }
@@ -229,18 +231,23 @@ class LocationTracker {
         pv: "5",
         did: "1",
         oTime: this.formatDate(now, false),  // yyyyMMddHHmm 형식
-        cCnt: String(this.locations.length),
-        cList: this.locations.map(loc => {
-          const locDate = new Date(loc.timestamp);
+        cCnt: "60",  // 항상 60개
+        cList: Array.from({ length: 60 }, (_, i) => {
+          const sec = String(i).padStart(2, '0');  // 00부터 59까지
+          const location = this.locations.find(loc => {
+            const locDate = new Date(loc.timestamp);
+            return String(locDate.getSeconds()).padStart(2, '0') === sec;
+          }) || this.locations[this.locations.length - 1];  // 해당 초의 데이터가 없으면 마지막 위치 사용
+
           return {
-            sec: String(locDate.getSeconds()).padStart(2, '0'),  // 00-59 형식
+            sec,
             gcd: "A",
-            lat: String(Math.round(loc.latitude * 1000000)),
-            lon: String(Math.round(loc.longitude * 1000000)),
+            lat: String(Math.round(location.latitude * 1000000)),
+            lon: String(Math.round(location.longitude * 1000000)),
             ang: "0",
             spd: "0",
             sum: "0",
-            bat: "120"  // 12.0V를 나타내는 예시값
+            bat: "120"
           };
         })
       };
@@ -295,7 +302,7 @@ class LocationTracker {
 
   private updateUI(location: LocationData) {
     this.locationElement.textContent = `Current Location: ${location.latitude}, ${location.longitude}`;
-    this.countElement.textContent = `Collected: ${this.locations.length}/60`;
+    this.countElement.textContent = `Collected: ${this.locations.length}/${END_TIME}`;
   }
 
   private async toggleTracking() {
@@ -333,7 +340,7 @@ class LocationTracker {
           if (this.locations.length > 0) {
             await this.sendLocations();
           }
-        }, 60000);
+        }, END_TIME * 1000);
         
         this.startButton.textContent = 'Stop Tracking';
       } catch (error: any) {
@@ -350,6 +357,8 @@ class LocationTracker {
         if (this.sendIntervalId !== null) clearInterval(this.sendIntervalId);
         this.intervalId = null;
         this.sendIntervalId = null;
+        this.locations = [];  // locations 배열 초기화
+        this.updateUI({ latitude: 0, longitude: 0, timestamp: Date.now() });  // UI 업데이트
         this.statusElement.textContent = 'Status: Tracking stopped, car OFF log sent';
         this.startButton.textContent = 'Start Tracking';
       } catch (error) {
