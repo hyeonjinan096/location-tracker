@@ -1,7 +1,7 @@
 import './style.css'
 
 const API_BASE_URL = 'https://api.where-car.com:8080';
-const HUB_API_URL = 'http://ts.where-car.com:8090';
+const HUB_API_URL = 'https://hub.where-car.com:8080';
 
 interface LocationData {
   latitude: number;
@@ -114,7 +114,7 @@ class LocationTracker {
 
   private validateMdn() {
     const mdn = this.mdnInput.value.trim();
-    const isValid = /^\d{3}$/.test(mdn); // 11자리 숫자인지 확인
+    const isValid = mdn.length > 0; // 빈 문자열이 아닌 경우에만 true
     this.startButton.disabled = !isValid;
     return isValid;
   }
@@ -191,7 +191,7 @@ class LocationTracker {
 
     try {
       console.log('Sending car ON request:', request);
-      const response = await fetch(`${HUB_API_URL}/api/on`, {
+      const response = await fetch(`${HUB_API_URL}/api/hub/on`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -230,7 +230,7 @@ class LocationTracker {
     };
 
     try {
-      const response = await fetch(`${HUB_API_URL}/api/off`, {
+      const response = await fetch(`${HUB_API_URL}/api/hub/off`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -284,7 +284,7 @@ class LocationTracker {
       };
 
       console.log('Sending GPS log request:', gpsLogRequest);
-      const response = await fetch(`${HUB_API_URL}/api/gps`, {
+      const response = await fetch(`${HUB_API_URL}/api/hub/gps`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
