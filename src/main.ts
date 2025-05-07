@@ -357,6 +357,12 @@ class LocationTracker {
         if (this.sendIntervalId !== null) clearInterval(this.sendIntervalId);
         this.intervalId = null;
         this.sendIntervalId = null;
+        
+        // 마지막으로 수집된 위치 데이터 전송
+        if (this.locations.length > 0) {
+          await this.sendLocations();
+        }
+        
         this.locations = [];  // locations 배열 초기화
         this.updateUI({ latitude: 0, longitude: 0, timestamp: Date.now() });  // UI 업데이트
         this.statusElement.textContent = 'Status: Tracking stopped, car OFF log sent';
