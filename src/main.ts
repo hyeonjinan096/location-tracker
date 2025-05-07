@@ -247,8 +247,8 @@ class LocationTracker {
   }
 
   private async sendLocations() {
-    if (this.locations.length < END_TIME) {
-      console.log(`Not enough locations collected: ${this.locations.length}/${END_TIME}`);
+    if (this.locations.length === 0) {
+      console.log('No locations to send');
       return;
     }
 
@@ -270,7 +270,7 @@ class LocationTracker {
         pv: "5",
         did: "1",
         oTime: this.formatDate(now, false),  // yyyyMMddHHmm 형식
-        cCnt: String(END_TIME),  // 항상 60개
+        cCnt: String(locationsToSend.length),  // 실제 수집된 데이터 개수
         cList: locationsToSend.map((location, index) => ({
           sec: String(index).padStart(2, '0'),  // 00부터 시작하는 인덱스
           gcd: "A",
@@ -434,6 +434,7 @@ class LocationTracker {
         this.intervalId = null;
         this.sendIntervalId = null;
         
+        // 현재까지 쌓인 위치 데이터 전송
         if (this.locations.length > 0) {
           await this.sendLocations();
         }
