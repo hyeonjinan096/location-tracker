@@ -18,10 +18,6 @@ interface TokenRequest {
   dFWVer: string;
 }
 
-interface TokenResponse {
-  token: string;
-}
-
 interface CarLogRequest {
   mdn: string;
   tid: string;
@@ -350,8 +346,8 @@ class LocationTracker {
         const position = await this.getCurrentPosition();
         await this.sendCarOffLog(position);
         
-        clearInterval(this.intervalId);
-        clearInterval(this.sendIntervalId);
+        if (this.intervalId !== null) clearInterval(this.intervalId);
+        if (this.sendIntervalId !== null) clearInterval(this.sendIntervalId);
         this.intervalId = null;
         this.sendIntervalId = null;
         this.statusElement.textContent = 'Status: Tracking stopped, car OFF log sent';
