@@ -69,6 +69,9 @@ class LocationTracker {
   private mdnInput: HTMLInputElement;
   private token: string | null = null;
   private startTime: string | null = null;
+  private map: naver.maps.Map | null = null;
+  private markers: naver.maps.Marker[] = [];
+  private path: naver.maps.Polyline | null = null;
 
   constructor() {
     this.statusElement = document.getElementById('status') as HTMLElement;
@@ -77,8 +80,36 @@ class LocationTracker {
     this.startButton = document.getElementById('startTracking') as HTMLButtonElement;
     this.mdnInput = document.getElementById('mdnInput') as HTMLInputElement;
 
+    this.initializeMap();
+    this.countElement.textContent = `Collected: 0/${END_TIME}`;
     this.mdnInput.addEventListener('input', () => this.validateMdn());
     this.startButton.addEventListener('click', () => this.toggleTracking());
+  }
+
+  private async initializeMap() {
+    const clientId = import.meta.env.VITE_NAVER_MAP_CLIENT_ID;
+    const script = document.createElement('script');
+    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${clientId}`;
+    script.async = true;
+    
+    script.onload = () => {
+      // 지도 초기화
+      this.map = new naver.maps.Map('map', {
+        center: new naver.maps.LatLng(37.5665, 126.9780), // 서울 시청 좌표
+        zoom: 15
+      });
+
+      // 경로 선 초기화
+      this.path = new naver.maps.Polyline({
+        path: [],
+        strokeColor: '#FF0000',
+        strokeWeight: 3,
+        strokeOpacity: 0.8,
+        map: this.map
+      });
+    };
+
+    document.head.appendChild(script);
   }
 
   private validateMdn() {
@@ -300,9 +331,55 @@ class LocationTracker {
     }
   }
 
+  private updateMap(location: LocationData) {
+    if (!this.map || !this.path) return;
+
+    const position = new naver.maps.LatLng(location.latitude, location.longitude);
+    
+    // 마커 추가
+    const marker = new naver.maps.Marker({
+      position: position,
+      map: this.map,
+      title: new Date(location.timestamp).toLocaleTimeString()
+    });
+    this.markers.push(marker);
+
+    // 경로 업데이트
+    const path = this.path.getPath();
+    path.push(position);
+    this.path.setPath(path);
+
+    // 지도 중심 이동
+    this.map.setCenter(position);
+  }
+
+  private clearMap() {
+    if (!this.map) return;
+
+    // 마커 제거
+    this.markers.forEach(marker => marker.setMap(null));
+    this.markers = [];
+
+    // 경로 제거
+    if (this.path) {
+      this.path.setMap(null);
+      this.path = null;
+    }
+
+    // 새로운 경로 생성
+    this.path = new naver.maps.Polyline({
+      path: [],
+      strokeColor: '#FF0000',
+      strokeWeight: 3,
+      strokeOpacity: 0.8,
+      map: this.map
+    });
+  }
+
   private updateUI(location: LocationData) {
     this.locationElement.textContent = `Current Location: ${location.latitude}, ${location.longitude}`;
     this.countElement.textContent = `Collected: ${this.locations.length}/${END_TIME}`;
+    this.updateMap(location);
   }
 
   private async toggleTracking() {
@@ -340,7 +417,7 @@ class LocationTracker {
           if (this.locations.length > 0) {
             await this.sendLocations();
           }
-        }, END_TIME * 1000);
+        }, END_TIME * 100);
         
         this.startButton.textContent = 'Stop Tracking';
       } catch (error: any) {
@@ -358,13 +435,15 @@ class LocationTracker {
         this.intervalId = null;
         this.sendIntervalId = null;
         
-        // 마지막으로 수집된 위치 데이터 전송
         if (this.locations.length > 0) {
           await this.sendLocations();
         }
         
-        this.locations = [];  // locations 배열 초기화
-        this.updateUI({ latitude: 0, longitude: 0, timestamp: Date.now() });  // UI 업데이트
+        // 완전한 초기화
+        this.clearMap();
+        this.locations = [];
+        this.locationElement.textContent = 'Current Location: -';
+        this.countElement.textContent = `Collected: 0/${END_TIME}`;
         this.statusElement.textContent = 'Status: Tracking stopped, car OFF log sent';
         this.startButton.textContent = 'Start Tracking';
       } catch (error) {

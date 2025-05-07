@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@types/navermaps": "^3.7.9",
     "typescript": "^5.0.2",
     "vite": "^5.0.0"
   }

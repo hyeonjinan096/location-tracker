@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Location Tracker</title>
+    <!-- <script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId="></script> -->
   </head>
   <body>
     <div id="app">
@@ -14,8 +15,9 @@
       </div>
       <div id="status">Status: Waiting to start...</div>
       <div id="current-location">Current Location: -</div>
-      <div id="collected-count">Collected: 0/60</div>
+      <div id="collected-count"></div>
       <button id="startTracking" disabled>Start Tracking</button>
+      <div id="map" style="width: 100%; height: 400px; margin-top: 20px;"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
