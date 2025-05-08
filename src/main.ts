@@ -369,7 +369,11 @@ class LocationTracker {
 
     const position = new naver.maps.LatLng(location.latitude, location.longitude);
     
-    // 마커 추가
+    // 이전 마커 제거
+    this.markers.forEach(marker => marker.setMap(null));
+    this.markers = [];
+
+    // 현재 위치에만 마커 추가
     const marker = new naver.maps.Marker({
       position: position,
       map: this.map,
