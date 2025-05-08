@@ -56,6 +56,13 @@ interface GpsLogRequest {
   cList: GpsLogInfo[];
 }
 
+interface TokenResponse {
+  rstCd: string;
+  rstMsg: string;
+  mdn: string | null;
+  token?: string;
+}
+
 const END_TIME = 60;
 
 class LocationTracker {
@@ -114,7 +121,7 @@ class LocationTracker {
 
   private validateMdn() {
     const mdn = this.mdnInput.value.trim();
-    const isValid = mdn.length > 0; // 11자리 숫자인지 확인
+    const isValid = mdn.length > 0;
     this.startButton.disabled = !isValid;
     return isValid;
   }
@@ -136,7 +143,26 @@ class LocationTracker {
       : `${year}${month}${day}${hours}${minutes}`;
   }
 
+  private getStoredToken(): string | null {
+    return localStorage.getItem('token');
+  }
+
+  private setStoredToken(token: string) {
+    localStorage.setItem('token', token);
+  }
+
+  private clearStoredToken() {
+    localStorage.removeItem('token');
+  }
+
   private async getToken(): Promise<string> {
+    const storedToken = this.getStoredToken();
+    if (storedToken) {
+      console.log('Using stored token');
+      return storedToken;
+    }
+
+    console.log('No stored token, requesting new token');
     const tokenRequest: TokenRequest = {
       mdn: this.getMdn(),
       tid: "A001",
@@ -156,16 +182,63 @@ class LocationTracker {
         body: JSON.stringify(tokenRequest),
       });
 
-      const data = await response.json();
+      const data = await response.json() as TokenResponse;
       console.log('Token Response:', { status: response.status, data });
       
-      if (!response.ok) {
-        throw new Error(`Failed to get token: ${response.status} ${response.statusText}`);
+      if (!response.ok || data.rstCd !== '000') {
+        throw new Error(`Failed to get token: ${data.rstMsg}`);
       }
 
-      return data.token;
+      if (data.token) {
+        this.setStoredToken(data.token);
+        return data.token;
+      } else {
+        throw new Error('Token not received in response');
+      }
     } catch (error) {
       console.error('Error getting token:', error);
+      throw error;
+    }
+  }
+
+  private async validateAndRefreshToken(): Promise<string> {
+    try {
+      const token = await this.getToken();
+      return token;
+    } catch (error) {
+      console.error('Error validating token:', error);
+      this.clearStoredToken();
+      throw error;
+    }
+  }
+
+  private async makeAuthenticatedRequest(url: string, method: string, body: any): Promise<any> {
+    try {
+      const token = await this.validateAndRefreshToken();
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Token': token
+        },
+        body: JSON.stringify(body)
+      });
+
+      const data = await response.json() as TokenResponse;
+      
+      if (data.rstCd !== '000') {
+        if (['200', '201', '202'].includes(data.rstCd)) {
+          // 토큰 관련 에러인 경우 토큰을 삭제하고 재시도
+          console.log('Token related error, clearing stored token and retrying');
+          this.clearStoredToken();
+          return this.makeAuthenticatedRequest(url, method, body);
+        }
+        throw new Error(data.rstMsg);
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error in authenticated request:', error);
       throw error;
     }
   }
@@ -191,21 +264,8 @@ class LocationTracker {
 
     try {
       console.log('Sending car ON request:', request);
-      const response = await fetch(`${HUB_API_URL}/api/hub/on`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Token': this.token!
-        },
-        body: JSON.stringify(request),
-      });
-
-      const data = await response.json();
-      console.log('Car ON Response:', { status: response.status, data });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to send car ON log: ${response.status} ${response.statusText}`);
-      }
+      await this.makeAuthenticatedRequest(`${HUB_API_URL}/api/hub/on`, 'POST', request);
+      console.log('Car ON log sent successfully');
     } catch (error) {
       console.error('Error sending car ON log:', error);
       throw error;
@@ -230,19 +290,11 @@ class LocationTracker {
     };
 
     try {
-      const response = await fetch(`${HUB_API_URL}/api/hub/off`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Token': this.token!
-        },
-        body: JSON.stringify(request),
-      });
-
-      const data = await response.json();
-      console.log('Car OFF Response:', { status: response.status, data });
+      await this.makeAuthenticatedRequest(`${HUB_API_URL}/api/hub/off`, 'POST', request);
+      console.log('Car OFF log sent successfully');
     } catch (error) {
       console.error('Error sending car OFF log:', error);
+      throw error;
     }
   }
 
@@ -255,13 +307,9 @@ class LocationTracker {
     this.statusElement.textContent = 'Status: Sending locations...';
     
     try {
-      if (!this.token) {
-        throw new Error('No token available');
-      }
-
       const now = new Date();
-      const locationsToSend = [...this.locations];  // 현재 수집된 위치 데이터 복사
-      this.locations = [];  // 데이터 전송 전에 배열 비우기
+      const locationsToSend = [...this.locations];
+      this.locations = [];
 
       const gpsLogRequest: GpsLogRequest = {
         mdn: this.getMdn(),
@@ -269,10 +317,10 @@ class LocationTracker {
         mid: "6",
         pv: "5",
         did: "1",
-        oTime: this.formatDate(now, false),  // yyyyMMddHHmm 형식
-        cCnt: String(locationsToSend.length),  // 실제 수집된 데이터 개수
+        oTime: this.formatDate(now, false),
+        cCnt: String(locationsToSend.length),
         cList: locationsToSend.map((location, index) => ({
-          sec: String(index).padStart(2, '0'),  // 00부터 시작하는 인덱스
+          sec: String(index).padStart(2, '0'),
           gcd: "A",
           lat: String(Math.round(location.latitude * 1000000)),
           lon: String(Math.round(location.longitude * 1000000)),
@@ -284,22 +332,8 @@ class LocationTracker {
       };
 
       console.log('Sending GPS log request:', gpsLogRequest);
-      const response = await fetch(`${HUB_API_URL}/api/hub/gps`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Token': this.token
-        },
-        body: JSON.stringify(gpsLogRequest),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to send locations');
-      }
-
-      const data = await response.json();
-      console.log('GPS Log Response:', { status: response.status, data });
-
+      await this.makeAuthenticatedRequest(`${HUB_API_URL}/api/hub/gps`, 'POST', gpsLogRequest);
+      console.log('GPS log sent successfully');
       this.statusElement.textContent = 'Status: Locations sent successfully';
     } catch (error) {
       console.error('Error sending locations:', error);
