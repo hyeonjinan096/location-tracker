@@ -83,6 +83,7 @@ class LocationTracker {
   private currentPathIndex: number = 0;
   private isDrawingMode: boolean = false;
   private drawingButton: HTMLButtonElement;
+  private isProcessing: boolean = false;
 
   constructor() {
     this.statusElement = document.getElementById('status') as HTMLElement;
@@ -522,20 +523,32 @@ class LocationTracker {
   }
 
   private async toggleTracking() {
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+    
+    // 버튼 비활성화 및 시각적 피드백
+    this.startButton.disabled = true;
+
     if (this.intervalId === null) {
       // Start tracking
       if (!navigator.geolocation && !this.isDrawingMode) {
         this.statusElement.textContent = 'Status: Geolocation is not supported';
+        this.isProcessing = false;
+        this.startButton.disabled = false;
         return;
       }
 
       if (!this.validateMdn()) {
         this.statusElement.textContent = 'Status: Invalid MDN';
+        this.isProcessing = false;
+        this.startButton.disabled = false;
         return;
       }
 
       if (this.isDrawingMode && this.pathCoordinates.length === 0) {
         this.statusElement.textContent = 'Status: Please draw a path first';
+        this.isProcessing = false;
+        this.startButton.disabled = false;
         return;
       }
 
@@ -567,11 +580,15 @@ class LocationTracker {
         }, 1000);
         
         this.startButton.textContent = 'Stop Tracking';
+        this.startButton.disabled = false;
       } catch (error: any) {
         console.error('Error in toggleTracking:', error);
         this.statusElement.textContent = `Status: Failed to start tracking - ${error.message}`;
         // 그리기 버튼 다시 활성화
         this.drawingButton.disabled = false;
+        this.startButton.disabled = false;
+      } finally {
+        this.isProcessing = false;
       }
     } else {
       // Stop tracking
@@ -600,9 +617,13 @@ class LocationTracker {
         // 그리기 버튼 초기화 및 활성화
         this.drawingButton.disabled = false;
         this.resetDrawingMode();
+        this.startButton.disabled = false;
       } catch (error) {
         console.error('Error stopping tracking:', error);
         this.statusElement.textContent = 'Status: Error sending car OFF log';
+        this.startButton.disabled = false;
+      } finally {
+        this.isProcessing = false;
       }
     }
   }
