@@ -74,7 +74,7 @@ class LocationTracker {
   private countElement: HTMLElement;
   private startButton: HTMLButtonElement;
   private mdnInput: HTMLInputElement;
-  private token: string | null = null;
+  private _token: string | null = null;
   private startTime: string | null = null;
   private map: naver.maps.Map | null = null;
   private markers: naver.maps.Marker[] = [];
@@ -545,7 +545,7 @@ class LocationTracker {
         
         this.statusElement.textContent = 'Status: Getting token...';
         console.log('Starting token request...');
-        this.token = await this.getToken();
+        this._token = await this.getToken();
         console.log('Token received successfully');
         
         this.statusElement.textContent = 'Status: Token received, sending car ON log...';
