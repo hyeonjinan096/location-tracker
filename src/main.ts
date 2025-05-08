@@ -318,7 +318,7 @@ class LocationTracker {
         pv: "5",
         did: "1",
         oTime: this.formatDate(now, false),
-        cCnt: String(locationsToSend.length),
+        cCnt: "60",
         cList: locationsToSend.map((location, index) => ({
           sec: String(index).padStart(2, '0'),
           gcd: "A",
