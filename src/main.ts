@@ -91,6 +91,7 @@ class LocationTracker {
   private statusElement: HTMLElement;
   private locationElement: HTMLElement;
   private speedElement: HTMLElement;
+  private bearingElement: HTMLElement;
   private countElement: HTMLElement;
   private startButton: HTMLButtonElement;
   private mdnInput: HTMLInputElement;
@@ -114,6 +115,7 @@ class LocationTracker {
     this.statusElement = document.getElementById('status') as HTMLElement;
     this.locationElement = document.getElementById('current-location') as HTMLElement;
     this.speedElement = document.getElementById('current-speed') as HTMLElement;
+    this.bearingElement = document.getElementById('current-bearing') as HTMLElement;
     this.countElement = document.getElementById('collected-count') as HTMLElement;
     this.startButton = document.getElementById('startTracking') as HTMLButtonElement;
     this.mdnInput = document.getElementById('mdnInput') as HTMLInputElement;
@@ -678,15 +680,23 @@ class LocationTracker {
     
     // 속도 정보 표시
     const speedValue = locationData.speed !== null ? locationData.speed : 0;
-    
-    // 속도가 0이라도 표시합니다 (N/A 대신)
     this.speedElement.textContent = `Current Speed: ${speedValue.toFixed(2)} km/h`;
+    
+    // 방향 정보 표시
+    const bearing = locationData.bearing !== undefined ? locationData.bearing : 0;
+    this.bearingElement.textContent = `Current Bearing: ${bearing}° (${this.getBearingDirection(bearing)})`;
     
     // 수집된 위치 데이터 수 업데이트
     this.countElement.textContent = `Collected: ${this.locations.length}/${END_TIME}`;
 
     // 지도 업데이트
     this.updateMap(locationData);
+  }
+
+  // 방향 각도를 방위(N, NE, E 등)로 변환하는 헬퍼 함수
+  private getBearingDirection(bearing: number): string {
+    const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW', 'N'];
+    return directions[Math.round(bearing / 45) % 8];
   }
 
   private async toggleTracking() {
@@ -784,6 +794,7 @@ class LocationTracker {
         this.prevCoordinates = null;
         this.locationElement.textContent = 'Current Location: -';
         this.speedElement.textContent = 'Current Speed: 0.00 km/h';
+        this.bearingElement.textContent = 'Current Bearing: N/A';
         this.countElement.textContent = `Collected: 0/${END_TIME}`;
         this.statusElement.textContent = 'Status: Tracking stopped, car OFF log sent';
         this.startButton.textContent = 'Start Tracking';
