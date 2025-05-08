@@ -7,6 +7,7 @@ interface LocationData {
   latitude: number;
   longitude: number;
   timestamp: number;
+  speed: number | null;  // km/h 단위, 사용 불가능한 경우 null
 }
 
 interface TokenRequest {
@@ -84,6 +85,7 @@ class LocationTracker {
   private isDrawingMode: boolean = false;
   private drawingButton: HTMLButtonElement;
   private isProcessing: boolean = false;
+  private currentSpeed: number = 0; // 현재 속도를 저장하는 변수
 
   constructor() {
     this.statusElement = document.getElementById('status') as HTMLElement;
@@ -105,6 +107,7 @@ class LocationTracker {
     this.drawingButton.classList.remove('active');
     this.drawingButton.textContent = 'Draw Path';
     this.pathCoordinates = [];
+    this.currentSpeed = 0; // 속도 초기화
     
     if (this.path) {
       this.path.setMap(null);
@@ -401,17 +404,23 @@ class LocationTracker {
         pv: "5",
         did: "1",
         oTime: this.formatDate(now, false),
-        cCnt: "60",
-        cList: locationsToSend.map((location, index) => ({
-          sec: String(index).padStart(2, '0'),
-          gcd: "A",
-          lat: String(Math.round(location.latitude * 1000000)),
-          lon: String(Math.round(location.longitude * 1000000)),
-          ang: "0",
-          spd: "0",
-          sum: "0",
-          bat: "120"
-        }))
+        cCnt: String(locationsToSend.length),
+        cList: locationsToSend.map((location, index) => {
+          // 속도 처리: null이면 0, 음수면 0, 255를 초과하면 255로 제한
+          let speed = location.speed !== null ? Math.round(location.speed) : 0;
+          speed = Math.max(0, Math.min(255, speed)); // 0~255 범위로 제한
+          
+          return {
+            sec: String(index).padStart(2, '0'),
+            gcd: "A",
+            lat: String(Math.round(location.latitude * 1000000)),
+            lon: String(Math.round(location.longitude * 1000000)),
+            ang: "0",
+            spd: String(speed),
+            sum: "0",
+            bat: "120"
+          };
+        })
       };
 
       console.log('Sending GPS log request:', gpsLogRequest);
@@ -437,10 +446,24 @@ class LocationTracker {
       if (this.isDrawingMode && this.pathCoordinates.length > 0) {
         // 그린 경로를 따라 위치 데이터 생성
         const currentCoord = this.pathCoordinates[this.currentPathIndex];
+        
+        // 처음 시작할 때만 초기 속도를 설정 (40~120km/h 범위)
+        if (this.currentSpeed === 0) {
+          this.currentSpeed = Math.floor(Math.random() * 80) + 40;
+        }
+        
+        // 속도를 -5 ~ +5 범위에서 변화시킴
+        const speedChange = Math.floor(Math.random() * 11) - 5;
+        this.currentSpeed += speedChange;
+        
+        // 속도를 0~255 범위 내로 제한
+        this.currentSpeed = Math.max(0, Math.min(255, this.currentSpeed));
+        
         locationData = {
           latitude: currentCoord.y,
           longitude: currentCoord.x,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          speed: this.currentSpeed
         };
 
         // 다음 좌표로 이동
@@ -451,7 +474,8 @@ class LocationTracker {
         locationData = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          speed: position.coords.speed !== null ? position.coords.speed * 3.6 : null // m/s에서 km/h로 변환
         };
       }
 
@@ -517,7 +541,9 @@ class LocationTracker {
   }
 
   private updateUI(location: LocationData) {
-    this.locationElement.textContent = `Current Location: ${location.latitude}, ${location.longitude}`;
+    // 속도 표시 포맷 (km/h)
+    const speedText = location.speed !== null ? `${Math.round(location.speed)} km/h` : 'N/A';
+    this.locationElement.textContent = `Current Location: ${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)} | Speed: ${speedText}`;
     this.countElement.textContent = `Collected: ${this.locations.length}/${END_TIME}`;
     this.updateMap(location);
   }
@@ -555,6 +581,9 @@ class LocationTracker {
       try {
         // 그리기 버튼 비활성화
         this.drawingButton.disabled = true;
+        
+        // 속도 초기화
+        this.currentSpeed = 0;
         
         this.statusElement.textContent = 'Status: Getting token...';
         console.log('Starting token request...');
@@ -609,6 +638,7 @@ class LocationTracker {
         // 완전한 초기화
         this.clearMap();
         this.locations = [];
+        this.currentSpeed = 0;
         this.locationElement.textContent = 'Current Location: -';
         this.countElement.textContent = `Collected: 0/${END_TIME}`;
         this.statusElement.textContent = 'Status: Tracking stopped, car OFF log sent';
