@@ -87,6 +87,7 @@ class LocationTracker {
   private drawingButton: HTMLButtonElement;
   private isProcessing: boolean = false;
   private currentSpeed: number = 0; // 현재 속도를 저장하는 변수
+  private isMoving: boolean = true;
 
   constructor() {
     this.statusElement = document.getElementById('status') as HTMLElement;
@@ -469,19 +470,34 @@ class LocationTracker {
         };
 
         // 다음 좌표로 이동
-        this.currentPathIndex = (this.currentPathIndex + 1) % this.pathCoordinates.length;
+        this.currentPathIndex += 1;
+        
+        // 경로의 끝에 도달한 경우 인터벌 중지
+        if (this.currentPathIndex >= this.pathCoordinates.length) {
+          if (this.intervalId) {
+            clearInterval(this.intervalId);
+            this.intervalId = null;
+          }
+          this.isMoving = false;
+          this.statusElement.textContent = 'Status: End of path reached. Tracking stopped.';
+          this.startButton.textContent = 'Start Tracking';
+          return;
+        }
       } else {
         // 실제 GPS 위치 사용
         const position = await this.getCurrentPosition();
+        const calculatedSpeed = position.coords.speed !== null ? position.coords.speed * 3.6 : 0;
+        
         locationData = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           timestamp: Date.now(),
-          speed: position.coords.speed !== null ? position.coords.speed * 3.6 : null // m/s에서 km/h로 변환
+          speed: calculatedSpeed
         };
       }
 
       this.locations.push(locationData);
+      
       this.updateUI(locationData);
     } catch (error) {
       console.error('Error getting location:', error);
@@ -542,16 +558,21 @@ class LocationTracker {
     });
   }
 
-  private updateUI(location: LocationData) {
+  private updateUI(locationData: LocationData) {
     // 위치 정보 표시
-    this.locationElement.textContent = `Current Location: ${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`;
+    this.locationElement.textContent = `Current Location: ${locationData.latitude.toFixed(6)}, ${locationData.longitude.toFixed(6)}`;
     
-    // 속도 표시 포맷 (km/h)
-    const speedText = location.speed !== null ? `${Math.round(location.speed)} km/h` : 'N/A';
-    this.speedElement.textContent = `Current Speed: ${speedText}`;
+    // 속도 정보 표시
+    const speedValue = locationData.speed !== null ? locationData.speed : 0;
     
+    // 속도가 0이라도 표시합니다 (N/A 대신)
+    this.speedElement.textContent = `Current Speed: ${speedValue.toFixed(2)} km/h`;
+    
+    // 수집된 위치 데이터 수 업데이트
     this.countElement.textContent = `Collected: ${this.locations.length}/${END_TIME}`;
-    this.updateMap(location);
+
+    // 지도 업데이트
+    this.updateMap(locationData);
   }
 
   private async toggleTracking() {
