@@ -413,9 +413,15 @@ class LocationTracker {
     }
   }
 
-  private async sendLocations() {
+  private async sendLocations(forceToSend: boolean = false) {
     if (this.locations.length === 0) {
       console.log('No locations to send');
+      return;
+    }
+
+    // 60개 미만이고 강제 전송이 아닌 경우 전송하지 않음
+    if (this.locations.length < END_TIME && !forceToSend) {
+      console.log(`Only ${this.locations.length} locations collected (less than ${END_TIME}), not sending yet.`);
       return;
     }
 
@@ -522,16 +528,13 @@ class LocationTracker {
         // 다음 좌표로 이동
         this.currentPathIndex += 1;
         
-        // 경로의 끝에 도달한 경우 인터벌 중지
+        // 경로의 끝에 도달한 경우 처음으로 돌아가기
         if (this.currentPathIndex >= this.pathCoordinates.length) {
-          if (this.intervalId) {
-            clearInterval(this.intervalId);
-            this.intervalId = null;
-          }
-          this.isMoving = false;
-          this.statusElement.textContent = 'Status: End of path reached. Tracking stopped.';
-          this.startButton.textContent = 'Start Tracking';
-          return;
+          // 경로 끝에 도달했다는 메시지 표시
+          this.statusElement.textContent = 'Status: End of path reached. Rotating to start...';
+          
+          // 인덱스 초기화 (처음부터 다시 시작)
+          this.currentPathIndex = 0;
         }
       } else {
         // 실제 GPS 위치 사용
@@ -749,7 +752,7 @@ class LocationTracker {
         // Collect location every second
         this.intervalId = setInterval(() => this.collectLocation(), 1000);
         
-        // Send collected locations every minute (60초마다)
+        // Send collected locations when reached END_TIME (60개)
         this.sendIntervalId = setInterval(async () => {
           if (this.locations.length >= END_TIME) {
             await this.sendLocations();
@@ -778,9 +781,9 @@ class LocationTracker {
         this.intervalId = null;
         this.sendIntervalId = null;
         
-        // 현재까지 쌓인 위치 데이터 전송
+        // 현재까지 쌓인 위치 데이터 전송 (강제로 전송)
         if (this.locations.length > 0) {
-          await this.sendLocations();
+          await this.sendLocations(true);
         }
         
         // 완전한 초기화
