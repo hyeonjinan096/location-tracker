@@ -8,6 +8,7 @@ interface LocationData {
   longitude: number;
   timestamp: number;
   speed: number | null;  // km/h 단위, 사용 불가능한 경우 null
+  bearing?: number;
 }
 
 interface TokenRequest {
@@ -66,6 +67,23 @@ interface TokenResponse {
 
 const END_TIME = 60;
 
+// 두 좌표 사이의 방향(각도)를 계산하는 함수
+function getBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const toDeg = (rad: number) => (rad * 180) / Math.PI;
+
+  const dLon = toRad(lon2 - lon1);
+  const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+  const x =
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+
+  const bearingRad = Math.atan2(y, x);
+  const bearingDeg = Math.round((toDeg(bearingRad) + 360) % 360);
+
+  return bearingDeg; // 단위: 도(degree), 북쪽 기준 시계방향 (0-359)
+}
+
 class LocationTracker {
   private locations: LocationData[] = [];
   private intervalId: number | null = null;
@@ -89,6 +107,8 @@ class LocationTracker {
   private currentSpeed: number = 0; // 현재 속도를 저장하는 변수
   private isMoving: boolean = true;
   private prevLocation: { lat: number; lng: number; timestamp: number } | null = null;
+  private prevCoordinates: { latitude: number, longitude: number } | null = null;
+  private currentBearing: number = 0;
 
   constructor() {
     this.statusElement = document.getElementById('status') as HTMLElement;
@@ -337,6 +357,9 @@ class LocationTracker {
     const now = new Date();
     this.startTime = this.formatDate(now, true);
 
+    // 초기 방향은 0으로 설정
+    this.currentBearing = 0;
+
     const request: CarLogRequest = {
       mdn: this.getMdn(),
       tid: "A001",
@@ -347,7 +370,7 @@ class LocationTracker {
       gcd: "A",
       lat: String(Math.round(position.coords.latitude * 1000000)),
       lon: String(Math.round(position.coords.longitude * 1000000)),
-      ang: "0",
+      ang: String(this.currentBearing),
       spd: "0",
       sum: "0"
     };
@@ -374,7 +397,7 @@ class LocationTracker {
       gcd: "A",
       lat: String(Math.round(position.coords.latitude * 1000000)),
       lon: String(Math.round(position.coords.longitude * 1000000)),
-      ang: "0",
+      ang: String(this.currentBearing),
       spd: "0",
       sum: "0"
     };
@@ -419,7 +442,7 @@ class LocationTracker {
             gcd: "A",
             lat: String(Math.round(location.latitude * 1000000)),
             lon: String(Math.round(location.longitude * 1000000)),
-            ang: "0",
+            ang: String(location.bearing || 0),
             spd: String(speed),
             sum: "0",
             bat: "120"
@@ -463,11 +486,35 @@ class LocationTracker {
         // 속도를 0~255 범위 내로 제한
         this.currentSpeed = Math.max(0, Math.min(255, this.currentSpeed));
         
+        // 방향 계산 - 그리기 모드에서는 현재 좌표와 다음 좌표의 방향을 계산
+        let bearing = 0;
+        if (this.currentPathIndex < this.pathCoordinates.length - 1) {
+          // 현재 위치와 다음 위치 사이의 방향 계산
+          const nextCoord = this.pathCoordinates[this.currentPathIndex + 1];
+          bearing = getBearing(
+            currentCoord.y, currentCoord.x,
+            nextCoord.y, nextCoord.x
+          );
+        } else if (this.prevCoordinates) {
+          // 마지막 좌표에서는 이전 좌표에서의 방향 유지
+          bearing = getBearing(
+            this.prevCoordinates.latitude, this.prevCoordinates.longitude,
+            currentCoord.y, currentCoord.x
+          );
+        }
+        this.currentBearing = bearing;
+        
+        this.prevCoordinates = {
+          latitude: currentCoord.y,
+          longitude: currentCoord.x
+        };
+        
         locationData = {
           latitude: currentCoord.y,
           longitude: currentCoord.x,
           timestamp: Date.now(),
-          speed: this.currentSpeed
+          speed: this.currentSpeed,
+          bearing: bearing
         };
 
         // 다음 좌표로 이동
@@ -497,6 +544,7 @@ class LocationTracker {
         
         // 속도 계산 (iOS 호환성을 위해)
         let calculatedSpeed = 0; // 기본값
+        let bearing = this.currentBearing; // 기본값은 이전 방향 유지
         
         if (this.prevLocation) {
           // 두 지점 사이의 거리 계산 (미터 단위)
@@ -526,6 +574,24 @@ class LocationTracker {
             // m/s에서 km/h로 변환 (곱하기 3.6)
             calculatedSpeed = speedMps * 3.6;
           }
+          
+          // 방향 계산 - 이전 위치와 현재 위치 사이의 방향
+          if (distance > 1) { // 1m 이상 이동한 경우에만 방향 업데이트
+            bearing = getBearing(lat1, lon1, lat2, lon2);
+            this.currentBearing = bearing;
+          }
+        }
+        
+        if (this.prevCoordinates === null) {
+          this.prevCoordinates = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude
+          };
+        } else {
+          this.prevCoordinates = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude
+          };
         }
         
         // 최종 속도 결정 (GPS 속도가 있으면 사용, 없으면 계산된 속도 사용)
@@ -540,7 +606,8 @@ class LocationTracker {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           timestamp: Date.now(),
-          speed: finalSpeed
+          speed: finalSpeed,
+          bearing: bearing
         };
       }
 
@@ -656,9 +723,11 @@ class LocationTracker {
         // 그리기 버튼 비활성화
         this.drawingButton.disabled = true;
         
-        // 속도 초기화
+        // 속도 및 방향 초기화
         this.currentSpeed = 0;
+        this.currentBearing = 0;
         this.prevLocation = null;
+        this.prevCoordinates = null;
         
         this.statusElement.textContent = 'Status: Getting token...';
         this._token = await this.getToken();
@@ -710,7 +779,9 @@ class LocationTracker {
         this.clearMap();
         this.locations = [];
         this.currentSpeed = 0;
+        this.currentBearing = 0;
         this.prevLocation = null;
+        this.prevCoordinates = null;
         this.locationElement.textContent = 'Current Location: -';
         this.speedElement.textContent = 'Current Speed: 0.00 km/h';
         this.countElement.textContent = `Collected: 0/${END_TIME}`;
