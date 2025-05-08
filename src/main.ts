@@ -546,7 +546,7 @@ class LocationTracker {
         
         // 속도 계산 (iOS 호환성을 위해)
         let calculatedSpeed = 0; // 기본값
-        let bearing = this.currentBearing; // 기본값은 이전 방향 유지
+        let bearing = this.currentBearing;
         
         if (this.prevLocation) {
           // 두 지점 사이의 거리 계산 (미터 단위)
@@ -596,10 +596,8 @@ class LocationTracker {
           };
         }
         
-        // 최종 속도 결정 (GPS 속도가 있으면 사용, 없으면 계산된 속도 사용)
-        const finalSpeed = position.coords.speed !== null && position.coords.speed > 0 
-          ? position.coords.speed * 3.6  // m/s에서 km/h로 변환
-          : calculatedSpeed;
+        // 항상 직접 계산한 속도 사용 (coords.speed 사용 안 함)
+        const finalSpeed = calculatedSpeed;
         
         // 이전 위치 업데이트
         this.prevLocation = currentLocation;
