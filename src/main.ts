@@ -72,6 +72,7 @@ class LocationTracker {
   private sendIntervalId: number | null = null;
   private statusElement: HTMLElement;
   private locationElement: HTMLElement;
+  private speedElement: HTMLElement;
   private countElement: HTMLElement;
   private startButton: HTMLButtonElement;
   private mdnInput: HTMLInputElement;
@@ -90,6 +91,7 @@ class LocationTracker {
   constructor() {
     this.statusElement = document.getElementById('status') as HTMLElement;
     this.locationElement = document.getElementById('current-location') as HTMLElement;
+    this.speedElement = document.getElementById('current-speed') as HTMLElement;
     this.countElement = document.getElementById('collected-count') as HTMLElement;
     this.startButton = document.getElementById('startTracking') as HTMLButtonElement;
     this.mdnInput = document.getElementById('mdnInput') as HTMLInputElement;
@@ -541,9 +543,13 @@ class LocationTracker {
   }
 
   private updateUI(location: LocationData) {
+    // 위치 정보 표시
+    this.locationElement.textContent = `Current Location: ${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`;
+    
     // 속도 표시 포맷 (km/h)
     const speedText = location.speed !== null ? `${Math.round(location.speed)} km/h` : 'N/A';
-    this.locationElement.textContent = `Current Location: ${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)} | Speed: ${speedText}`;
+    this.speedElement.textContent = `Current Speed: ${speedText}`;
+    
     this.countElement.textContent = `Collected: ${this.locations.length}/${END_TIME}`;
     this.updateMap(location);
   }
@@ -640,6 +646,7 @@ class LocationTracker {
         this.locations = [];
         this.currentSpeed = 0;
         this.locationElement.textContent = 'Current Location: -';
+        this.speedElement.textContent = 'Current Speed: N/A';
         this.countElement.textContent = `Collected: 0/${END_TIME}`;
         this.statusElement.textContent = 'Status: Tracking stopped, car OFF log sent';
         this.startButton.textContent = 'Start Tracking';
