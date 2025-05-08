@@ -99,18 +99,46 @@ class LocationTracker {
     this.drawingButton.addEventListener('click', () => this.toggleDrawingMode());
   }
 
+  private resetDrawingMode() {
+    this.isDrawingMode = false;
+    this.drawingButton.classList.remove('active');
+    this.drawingButton.textContent = 'Draw Path';
+    this.pathCoordinates = [];
+    
+    if (this.path) {
+      this.path.setMap(null);
+      this.path = null;
+    }
+    
+    // 새 경로 초기화
+    if (this.map) {
+      this.path = new naver.maps.Polyline({
+        path: [],
+        strokeColor: '#FF0000',
+        strokeWeight: 3,
+        strokeOpacity: 0.8,
+        map: this.map
+      });
+    }
+  }
+
   private toggleDrawingMode() {
+    // 트래킹 중에는 그리기 모드 토글 불가
+    if (this.intervalId !== null) return;
+    
     this.isDrawingMode = !this.isDrawingMode;
-    this.drawingButton.classList.toggle('active');
     
     if (this.isDrawingMode) {
       // 그리기 모드 활성화
-      this.drawingButton.textContent = 'Cancel Drawing';
+      this.drawingButton.classList.add('active');
+      this.drawingButton.textContent = 'Cancel';
       this.pathCoordinates = [];
+      
       if (this.path) {
         this.path.setMap(null);
         this.path = null;
       }
+      
       // 새 경로 생성
       if (this.map) {
         this.path = new naver.maps.Polyline({
@@ -121,26 +149,11 @@ class LocationTracker {
           map: this.map
         });
       }
+      
       this.statusElement.textContent = 'Status: Drawing mode active. Click on the map to draw path.';
     } else {
       // 그리기 모드 비활성화
-      this.drawingButton.textContent = 'Draw Path';
-      // 경로 제거
-      if (this.path) {
-        this.path.setMap(null);
-        this.path = null;
-      }
-      this.pathCoordinates = [];
-      // 새 경로 초기화
-      if (this.map) {
-        this.path = new naver.maps.Polyline({
-          path: [],
-          strokeColor: '#FF0000',
-          strokeWeight: 3,
-          strokeOpacity: 0.8,
-          map: this.map
-        });
-      }
+      this.resetDrawingMode();
       this.statusElement.textContent = 'Status: Real-time mode active.';
     }
   }
@@ -191,6 +204,7 @@ class LocationTracker {
     const mdn = this.mdnInput.value.trim();
     const isValid = mdn.length > 0;
     this.startButton.disabled = !isValid;
+    this.drawingButton.disabled = !isValid;
     return isValid;
   }
 
@@ -583,8 +597,9 @@ class LocationTracker {
         this.statusElement.textContent = 'Status: Tracking stopped, car OFF log sent';
         this.startButton.textContent = 'Start Tracking';
         
-        // 그리기 버튼 다시 활성화
+        // 그리기 버튼 초기화 및 활성화
         this.drawingButton.disabled = false;
+        this.resetDrawingMode();
       } catch (error) {
         console.error('Error stopping tracking:', error);
         this.statusElement.textContent = 'Status: Error sending car OFF log';
