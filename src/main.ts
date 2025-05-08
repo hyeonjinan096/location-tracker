@@ -88,6 +88,7 @@ class LocationTracker {
   private isProcessing: boolean = false;
   private currentSpeed: number = 0; // 현재 속도를 저장하는 변수
   private isMoving: boolean = true;
+  private prevLocation: { lat: number; lng: number; timestamp: number } | null = null;
 
   constructor() {
     this.statusElement = document.getElementById('status') as HTMLElement;
@@ -486,18 +487,64 @@ class LocationTracker {
       } else {
         // 실제 GPS 위치 사용
         const position = await this.getCurrentPosition();
-        const calculatedSpeed = position.coords.speed !== null ? position.coords.speed * 3.6 : 0;
+        
+        // 현재 위치 저장
+        const currentLocation = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          timestamp: Date.now()
+        };
+        
+        // 속도 계산 (iOS 호환성을 위해)
+        let calculatedSpeed = 0; // 기본값
+        
+        if (this.prevLocation) {
+          // 두 지점 사이의 거리 계산 (미터 단위)
+          const lat1 = this.prevLocation.lat;
+          const lon1 = this.prevLocation.lng;
+          const lat2 = currentLocation.lat; 
+          const lon2 = currentLocation.lng;
+          
+          const R = 6371e3; // 지구 반지름 (미터)
+          const φ1 = lat1 * Math.PI / 180;
+          const φ2 = lat2 * Math.PI / 180;
+          const Δφ = (lat2 - lat1) * Math.PI / 180;
+          const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+          const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                  Math.cos(φ1) * Math.cos(φ2) *
+                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+          const distance = R * c; // 미터 단위 거리
+          
+          // 시간 차이 계산 (초 단위)
+          const dt = (currentLocation.timestamp - this.prevLocation.timestamp) / 1000;
+          
+          if (dt > 0) {
+            // 속도 계산 (m/s)
+            const speedMps = distance / dt;
+            // m/s에서 km/h로 변환 (곱하기 3.6)
+            calculatedSpeed = speedMps * 3.6;
+          }
+        }
+        
+        // 최종 속도 결정 (GPS 속도가 있으면 사용, 없으면 계산된 속도 사용)
+        const finalSpeed = position.coords.speed !== null && position.coords.speed > 0 
+          ? position.coords.speed * 3.6  // m/s에서 km/h로 변환
+          : calculatedSpeed;
+        
+        // 이전 위치 업데이트
+        this.prevLocation = currentLocation;
         
         locationData = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           timestamp: Date.now(),
-          speed: calculatedSpeed
+          speed: finalSpeed
         };
       }
 
       this.locations.push(locationData);
-      
       this.updateUI(locationData);
     } catch (error) {
       console.error('Error getting location:', error);
@@ -611,17 +658,14 @@ class LocationTracker {
         
         // 속도 초기화
         this.currentSpeed = 0;
+        this.prevLocation = null;
         
         this.statusElement.textContent = 'Status: Getting token...';
-        console.log('Starting token request...');
         this._token = await this.getToken();
-        console.log('Token received successfully');
         
         this.statusElement.textContent = 'Status: Token received, sending car ON log...';
-        console.log('Starting car ON request...');
         const position = await this.getCurrentPosition();
         await this.sendCarOnLog(position);
-        console.log('Car ON log sent successfully');
         
         this.statusElement.textContent = 'Status: Car ON log sent, starting tracking...';
         
@@ -666,8 +710,9 @@ class LocationTracker {
         this.clearMap();
         this.locations = [];
         this.currentSpeed = 0;
+        this.prevLocation = null;
         this.locationElement.textContent = 'Current Location: -';
-        this.speedElement.textContent = 'Current Speed: N/A';
+        this.speedElement.textContent = 'Current Speed: 0.00 km/h';
         this.countElement.textContent = `Collected: 0/${END_TIME}`;
         this.statusElement.textContent = 'Status: Tracking stopped, car OFF log sent';
         this.startButton.textContent = 'Start Tracking';
