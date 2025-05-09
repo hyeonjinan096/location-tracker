@@ -9,6 +9,7 @@ interface LocationData {
   timestamp: number;
   speed: number | null;  // km/h 단위, 사용 불가능한 경우 null
   bearing?: number;
+  totalDistance?: number; // 해당 시점까지의 누적 거리(미터)
 }
 
 interface TokenRequest {
@@ -110,6 +111,8 @@ class LocationTracker {
   private prevLocation: { lat: number; lng: number; timestamp: number } | null = null;
   private prevCoordinates: { latitude: number, longitude: number } | null = null;
   private currentBearing: number = 0;
+  private totalDistance: number = 0; // 누적 주행 거리 (미터)
+  private totalPathDistance: number = 0; // 경로 전체 거리 (미터)
 
   constructor() {
     this.statusElement = document.getElementById('status') as HTMLElement;
@@ -163,6 +166,7 @@ class LocationTracker {
       this.drawingButton.classList.add('active');
       this.drawingButton.textContent = 'Cancel';
       this.pathCoordinates = [];
+      this.totalPathDistance = 0;
       
       if (this.path) {
         this.path.setMap(null);
@@ -215,6 +219,17 @@ class LocationTracker {
         if (this.isDrawingMode) {
           // 클릭한 위치를 경로에 추가
           const coord = e.coord;
+          
+          // 거리 계산을 위해 이전 좌표가 있는지 확인
+          if (this.pathCoordinates.length > 0) {
+            const prevCoord = this.pathCoordinates[this.pathCoordinates.length - 1];
+            const distance = this.calculateDistance(
+              prevCoord.y, prevCoord.x,
+              coord.y, coord.x
+            );
+            this.totalPathDistance += distance;
+          }
+          
           this.pathCoordinates.push(coord);
           
           // 경로 업데이트
@@ -222,6 +237,11 @@ class LocationTracker {
             const path = this.path.getPath();
             path.push(coord);
             this.path.setPath(path);
+          }
+          
+          // 경로 길이 표시
+          if (this.pathCoordinates.length > 1) {
+            this.statusElement.textContent = `Status: Drawing mode active. Total path length: ${(this.totalPathDistance / 1000).toFixed(2)} km`;
           }
         }
       });
@@ -355,123 +375,32 @@ class LocationTracker {
     }
   }
 
-  private async sendCarOnLog(position: GeolocationPosition): Promise<void> {
-    const now = new Date();
-    this.startTime = this.formatDate(now, true);
+  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371e3; // 지구 반지름 (미터)
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
 
-    // 초기 방향은 0으로 설정
-    this.currentBearing = 0;
-
-    const request: CarLogRequest = {
-      mdn: this.getMdn(),
-      tid: "A001",
-      mid: "6",
-      pv: "5",
-      did: "1",
-      onTime: this.startTime,
-      gcd: "A",
-      lat: String(Math.round(position.coords.latitude * 1000000)),
-      lon: String(Math.round(position.coords.longitude * 1000000)),
-      ang: String(this.currentBearing),
-      spd: "0",
-      sum: "0"
-    };
-
-    try {
-      console.log('Sending car ON request:', request);
-      await this.makeAuthenticatedRequest(`${HUB_API_URL}/api/hub/on`, 'POST', request);
-      console.log('Car ON log sent successfully');
-    } catch (error) {
-      console.error('Error sending car ON log:', error);
-      throw error;
-    }
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // 미터 단위 거리
   }
 
-  private async sendCarOffLog(position: GeolocationPosition): Promise<void> {
-    const request: CarLogRequest = {
-      mdn: this.getMdn(),
-      tid: "A001",
-      mid: "6",
-      pv: "5",
-      did: "1",
-      onTime: this.startTime!,
-      offTime: this.formatDate(new Date(), true),
-      gcd: "A",
-      lat: String(Math.round(position.coords.latitude * 1000000)),
-      lon: String(Math.round(position.coords.longitude * 1000000)),
-      ang: String(this.currentBearing),
-      spd: "0",
-      sum: "0"
-    };
+  private calculatePathTotalDistance() {
+    this.totalPathDistance = 0;
+    if (this.pathCoordinates.length <= 1) return;
 
-    try {
-      await this.makeAuthenticatedRequest(`${HUB_API_URL}/api/hub/off`, 'POST', request);
-      console.log('Car OFF log sent successfully');
-    } catch (error) {
-      console.error('Error sending car OFF log:', error);
-      throw error;
+    for (let i = 0; i < this.pathCoordinates.length - 1; i++) {
+      const current = this.pathCoordinates[i];
+      const next = this.pathCoordinates[i + 1];
+      this.totalPathDistance += this.calculateDistance(
+        current.y, current.x,
+        next.y, next.x
+      );
     }
-  }
-
-  private async sendLocations(forceToSend: boolean = false) {
-    if (this.locations.length === 0) {
-      console.log('No locations to send');
-      return;
-    }
-
-    // 60개 미만이고 강제 전송이 아닌 경우 전송하지 않음
-    if (this.locations.length < END_TIME && !forceToSend) {
-      console.log(`Only ${this.locations.length} locations collected (less than ${END_TIME}), not sending yet.`);
-      return;
-    }
-
-    this.statusElement.textContent = 'Status: Sending locations...';
-    
-    try {
-      const now = new Date();
-      const locationsToSend = [...this.locations];
-      this.locations = [];
-
-      const gpsLogRequest: GpsLogRequest = {
-        mdn: this.getMdn(),
-        tid: "A001",
-        mid: "6",
-        pv: "5",
-        did: "1",
-        oTime: this.formatDate(now, false),
-        cCnt: String(locationsToSend.length),
-        cList: locationsToSend.map((location, index) => {
-          // 속도 처리: null이면 0, 음수면 0, 255를 초과하면 255로 제한
-          let speed = location.speed !== null ? Math.round(location.speed) : 0;
-          speed = Math.max(0, Math.min(255, speed)); // 0~255 범위로 제한
-          
-          return {
-            sec: String(index).padStart(2, '0'),
-            gcd: "A",
-            lat: String(Math.round(location.latitude * 1000000)),
-            lon: String(Math.round(location.longitude * 1000000)),
-            ang: String(location.bearing || 0),
-            spd: String(speed),
-            sum: "0",
-            bat: "120"
-          };
-        })
-      };
-
-      console.log('Sending GPS log request:', gpsLogRequest);
-      await this.makeAuthenticatedRequest(`${HUB_API_URL}/api/hub/gps`, 'POST', gpsLogRequest);
-      console.log('GPS log sent successfully');
-      this.statusElement.textContent = 'Status: Locations sent successfully';
-    } catch (error) {
-      console.error('Error sending locations:', error);
-      this.statusElement.textContent = 'Status: Error sending locations';
-    }
-  }
-
-  private async getCurrentPosition(): Promise<GeolocationPosition> {
-    return new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject);
-    });
   }
 
   private async collectLocation() {
@@ -496,6 +425,17 @@ class LocationTracker {
         
         // 방향 계산 - 그리기 모드에서는 현재 좌표와 다음 좌표의 방향을 계산
         let bearing = 0;
+        
+        // 거리 계산 및 누적
+        if (this.currentPathIndex > 0) {
+          const prevCoord = this.pathCoordinates[this.currentPathIndex - 1];
+          const distance = this.calculateDistance(
+            prevCoord.y, prevCoord.x,
+            currentCoord.y, currentCoord.x
+          );
+          this.totalDistance += distance;
+        }
+        
         if (this.currentPathIndex < this.pathCoordinates.length - 1) {
           // 현재 위치와 다음 위치 사이의 방향 계산
           const nextCoord = this.pathCoordinates[this.currentPathIndex + 1];
@@ -522,7 +462,8 @@ class LocationTracker {
           longitude: currentCoord.x,
           timestamp: Date.now(),
           speed: this.currentSpeed,
-          bearing: bearing
+          bearing: bearing,
+          totalDistance: this.totalDistance // 현재 시점까지의 누적 거리
         };
 
         // 다음 좌표로 이동
@@ -550,6 +491,7 @@ class LocationTracker {
         // 속도 계산 (iOS 호환성을 위해)
         let calculatedSpeed = 0; // 기본값
         let bearing = this.currentBearing;
+        let distance = 0;
         
         if (this.prevLocation) {
           // 두 지점 사이의 거리 계산 (미터 단위)
@@ -558,17 +500,10 @@ class LocationTracker {
           const lat2 = currentLocation.lat; 
           const lon2 = currentLocation.lng;
           
-          const R = 6371e3; // 지구 반지름 (미터)
-          const φ1 = lat1 * Math.PI / 180;
-          const φ2 = lat2 * Math.PI / 180;
-          const Δφ = (lat2 - lat1) * Math.PI / 180;
-          const Δλ = (lon2 - lon1) * Math.PI / 180;
-
-          const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                  Math.cos(φ1) * Math.cos(φ2) *
-                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
-          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-          const distance = R * c; // 미터 단위 거리
+          distance = this.calculateDistance(lat1, lon1, lat2, lon2);
+          
+          // 누적 거리 업데이트
+          this.totalDistance += distance;
           
           // 시간 차이 계산 (초 단위)
           const dt = (currentLocation.timestamp - this.prevLocation.timestamp) / 1000;
@@ -610,7 +545,8 @@ class LocationTracker {
           longitude: position.coords.longitude,
           timestamp: Date.now(),
           speed: finalSpeed,
-          bearing: bearing
+          bearing: bearing,
+          totalDistance: this.totalDistance // 현재 시점까지의 누적 거리
         };
       }
 
@@ -687,8 +623,8 @@ class LocationTracker {
     const bearing = locationData.bearing !== undefined ? locationData.bearing : 0;
     this.bearingElement.textContent = `Current Bearing: ${bearing}° (${this.getBearingDirection(bearing)})`;
     
-    // 수집된 위치 데이터 수 업데이트
-    this.countElement.textContent = `Collected: ${this.locations.length}/${END_TIME}`;
+    // 수집된 위치 데이터 수 및 누적 거리 업데이트
+    this.countElement.textContent = `Collected: ${this.locations.length}/${END_TIME} | Distance: ${(this.totalDistance / 1000).toFixed(2)} km`;
 
     // 지도 업데이트
     this.updateMap(locationData);
@@ -739,6 +675,12 @@ class LocationTracker {
         this.currentBearing = 0;
         this.prevLocation = null;
         this.prevCoordinates = null;
+        this.totalDistance = 0; // 누적 거리 초기화
+        
+        // 경로 모드에서 경로 거리 계산
+        if (this.isDrawingMode && this.pathCoordinates.length > 1) {
+          this.calculatePathTotalDistance();
+        }
         
         this.statusElement.textContent = 'Status: Getting token...';
         this._token = await this.getToken();
@@ -793,6 +735,7 @@ class LocationTracker {
         this.currentBearing = 0;
         this.prevLocation = null;
         this.prevCoordinates = null;
+        this.totalDistance = 0; // 누적 거리 초기화
         this.locationElement.textContent = 'Current Location: -';
         this.speedElement.textContent = 'Current Speed: 0.00 km/h';
         this.bearingElement.textContent = 'Current Bearing: N/A';
@@ -812,6 +755,133 @@ class LocationTracker {
         this.isProcessing = false;
       }
     }
+  }
+
+  private async sendCarOnLog(position: GeolocationPosition): Promise<void> {
+    const now = new Date();
+    this.startTime = this.formatDate(now, true);
+
+    // 초기 방향은 0으로 설정
+    this.currentBearing = 0;
+    this.totalDistance = 0; // 누적 거리 초기화
+
+    const request: CarLogRequest = {
+      mdn: this.getMdn(),
+      tid: "A001",
+      mid: "6",
+      pv: "5",
+      did: "1",
+      onTime: this.startTime,
+      gcd: "A",
+      lat: String(Math.round(position.coords.latitude * 1000000)),
+      lon: String(Math.round(position.coords.longitude * 1000000)),
+      ang: String(this.currentBearing),
+      spd: "0",
+      sum: "0" // 초기 누적 거리는 0
+    };
+
+    try {
+      console.log('Sending car ON request:', request);
+      await this.makeAuthenticatedRequest(`${HUB_API_URL}/api/hub/on`, 'POST', request);
+      console.log('Car ON log sent successfully');
+    } catch (error) {
+      console.error('Error sending car ON log:', error);
+      throw error;
+    }
+  }
+
+  private async sendCarOffLog(position: GeolocationPosition): Promise<void> {
+    // 누적 주행 거리를 미터 단위로 제한 (0~9999999)
+    const totalDistanceMeters = Math.min(9999999, Math.round(this.totalDistance));
+
+    const request: CarLogRequest = {
+      mdn: this.getMdn(),
+      tid: "A001",
+      mid: "6",
+      pv: "5",
+      did: "1",
+      onTime: this.startTime!,
+      offTime: this.formatDate(new Date(), true),
+      gcd: "A",
+      lat: String(Math.round(position.coords.latitude * 1000000)),
+      lon: String(Math.round(position.coords.longitude * 1000000)),
+      ang: String(this.currentBearing),
+      spd: "0",
+      sum: String(totalDistanceMeters) // 누적 주행 거리 추가
+    };
+
+    try {
+      await this.makeAuthenticatedRequest(`${HUB_API_URL}/api/hub/off`, 'POST', request);
+      console.log('Car OFF log sent successfully');
+    } catch (error) {
+      console.error('Error sending car OFF log:', error);
+      throw error;
+    }
+  }
+
+  private async sendLocations(forceToSend: boolean = false) {
+    if (this.locations.length === 0) {
+      console.log('No locations to send');
+      return;
+    }
+
+    // 60개 미만이고, 강제 전송이 아닌 경우 전송하지 않음
+    if (this.locations.length < END_TIME && !forceToSend) {
+      console.log(`Only ${this.locations.length} locations collected (less than ${END_TIME}), not sending yet.`);
+      return;
+    }
+
+    this.statusElement.textContent = 'Status: Sending locations...';
+    
+    try {
+      const now = new Date();
+      const locationsToSend = [...this.locations];
+      this.locations = [];
+
+      const gpsLogRequest: GpsLogRequest = {
+        mdn: this.getMdn(),
+        tid: "A001",
+        mid: "6",
+        pv: "5",
+        did: "1",
+        oTime: this.formatDate(now, false),
+        cCnt: String(locationsToSend.length),
+        cList: locationsToSend.map((location, index) => {
+          // 속도 처리: null이면 0, 음수면 0, 255를 초과하면 255로 제한
+          let speed = location.speed !== null ? Math.round(location.speed) : 0;
+          speed = Math.max(0, Math.min(255, speed)); // 0~255 범위로 제한
+          
+          // 각 위치에 저장된 누적 거리 사용 (또는 기본값 0)
+          // 0~9999999 범위로 제한
+          const distanceMeters = Math.min(9999999, Math.round(location.totalDistance || 0));
+          
+          return {
+            sec: String(index).padStart(2, '0'),
+            gcd: "A",
+            lat: String(Math.round(location.latitude * 1000000)),
+            lon: String(Math.round(location.longitude * 1000000)),
+            ang: String(location.bearing || 0),
+            spd: String(speed),
+            sum: String(distanceMeters), // 각 위치에 저장된 누적 거리 사용
+            bat: "120"
+          };
+        })
+      };
+
+      console.log('Sending GPS log request:', gpsLogRequest);
+      await this.makeAuthenticatedRequest(`${HUB_API_URL}/api/hub/gps`, 'POST', gpsLogRequest);
+      console.log('GPS log sent successfully');
+      this.statusElement.textContent = `Status: Locations sent successfully. Total distance: ${(this.totalDistance / 1000).toFixed(2)} km`;
+    } catch (error) {
+      console.error('Error sending locations:', error);
+      this.statusElement.textContent = 'Status: Error sending locations';
+    }
+  }
+
+  private async getCurrentPosition(): Promise<GeolocationPosition> {
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject);
+    });
   }
 }
 
